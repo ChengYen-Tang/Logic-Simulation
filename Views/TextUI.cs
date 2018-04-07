@@ -52,8 +52,8 @@ namespace Logic_simulation.View
                     case 2:
                         if (LogicSimulator.LoadStatus)
                         {
-                            bool[] Inputs = new bool[InputPin.PinsSignal.Length];
-                            for (int i = 1; i < InputPin.PinsSignal.Length; i++)
+                            bool[] Inputs = new bool[LogicSimulator.iPins.Length];
+                            for (int i = 1; i < LogicSimulator.iPins.Length; i++)
                             {
                                 Console.Write("Please key in the value of input pin {0}:", i);
                                 try

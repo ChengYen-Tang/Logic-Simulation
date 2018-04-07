@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Logic_simulation.Model;
 
@@ -7,10 +8,14 @@ namespace Logic_simulation.Controller
     public static class LogicSimulator
     {
         private static bool IsLoadDone = false;
-        private static Device[] Gates;
+        private static dynamic[] circuit;
+        public static IPin[] iPins;
+        public static List<dynamic> oPins;
 
-        public static unsafe bool Load(string FilePath)
+        public static bool Load(string FilePath)
         {
+            List<double>[] ConnectionInformation;
+            oPins = new List<dynamic>();
             try
             {
                 // 讀檔
@@ -18,14 +23,12 @@ namespace Logic_simulation.Controller
                 {
                     // 設定Input腳位數量
                     int iPinsCount = int.Parse(LogicCircuitFile.ReadLine());
-                    InputPin.PinsSignal = new bool[iPinsCount + 1];
+                    iPins = new IPin[iPinsCount + 1];
                     // 設定邏輯閘數量
                     int GatesCount = int.Parse(LogicCircuitFile.ReadLine());
-                    Gates = new Device[GatesCount + 1];
+                    circuit = new Device[GatesCount + 1];
+                    ConnectionInformation = new List<double>[GatesCount + 1];
 
-                    // 產生邏輯閘物件
-                    for (int i = 1; i <= GatesCount; i++)
-                        Gates[i] = new Device();
 
                     // 初始化邏輯閘
                     for (int i = 1; i <= GatesCount; i++)
@@ -35,41 +38,54 @@ namespace Logic_simulation.Controller
                         string[] GateInformation = LogicCircuitFile.ReadLine().Split(" ");
                         if (int.Parse(GateInformation[GateInformation.Length - 1]) != 0)
                             return false;
-                        // 設定邏輯閘型態
-                        Gates[i].GateType = (LogicGate)int.Parse(GateInformation[0]);
-                        // 設定邏輯閘輸入腳位的數量
-                        // 邏輯閘資訊第一項目為邏輯閘型態，最後項目為0
-                        Gates[i].iPins = new bool*[GateInformation.Length - 2];
-
-                        // 設定指標，把邏輯閘的輸入與其它邏輯閘的輸出對接
-                        for (int j = 1; j <= (GateInformation.Length - 2); j++)
+                        // 產生邏輯閘物件
+                        switch (int.Parse(GateInformation[0]))
                         {
-                            // 判斷輸入腳位的目標，<0代表電路的輸入
-                            if (double.Parse(GateInformation[j]) < 0)
+                            case 1:
+                                circuit[i] = new GateAND();
+                                break;
+
+                            case 2:
+                                circuit[i] = new GateOR();
+                                break;
+
+                            case 3:
+                                circuit[i] = new GateNOT();
+                                break;
+
+                            default:
+                                return false;
+                        }
+
+                        // 紀錄此邏輯的關聯資訊
+                        ConnectionInformation[i] = new List<double>();
+                        for (int j = 1; j <= (GateInformation.Length - 2); j++)
+                            ConnectionInformation[i].Add(double.Parse(GateInformation[j]));
+                    }
+
+                    // 關聯邏輯閘
+                    for (int i = 1; i <= GatesCount; i++)
+                        foreach (double InputNumber in ConnectionInformation[i])
+                            if (InputNumber < 0)
                             {
-                                // 設定輸入改變事件及腳位指標
-                                InputPin.OutputChangedEvent +=
-                                    Gates[i].GetOutput;
-                                fixed (bool* InPin =
-                                    &InputPin.PinsSignal[Math.Abs(Convert.ToInt16(double.Parse(GateInformation[j])))])
-                                    Gates[i].AddInputPin(InPin);
+                                if (iPins[Math.Abs(Convert.ToInt16(InputNumber))] == null)
+                                    iPins[Math.Abs(Convert.ToInt16(InputNumber))] = new IPin();
+                                circuit[i].AddInputPin(iPins[Math.Abs(Convert.ToInt16(InputNumber))]);
                             }
                             else
                             {
-                                // 紀錄此閘輸出有接到其它閘的輸入
-                                Gates[Convert.ToInt16(Math.Floor(double.Parse(GateInformation[j])))].IsOutput = false;
-
-                                Gates[Convert.ToInt16(Math.Floor(double.Parse(GateInformation[j])))].OutputChangedEvent
-                                    += Gates[i].GetOutput;
-                                fixed (bool* InPin =
-                                        &Gates[Convert.ToInt16(Math.Floor(Convert.ToDouble(GateInformation[j])))].Output)
-                                    Gates[i].AddInputPin(InPin);
+                                circuit[i].AddInputPin(circuit[Convert.ToInt16(Math.Floor(InputNumber))]);
+                                circuit[Convert.ToInt16(Math.Floor(InputNumber))].IsOutput = false;
                             }
-                        }
-                    }
 
-                    // 尋找電路的輸出腳位並設定指標
-                    OutputPin.LinkToDeviceOutput(Gates);
+                    // 尋找電路的最末端邏輯閘，並關聯至電路輸出腳位
+                    for (int i = 1; i <= GatesCount; i++)
+                        if (circuit[i].IsOutput)
+                        {
+                            OPin oPin = new OPin();
+                            oPin.AddInputPin(circuit[i]);
+                            oPins.Add(oPin);
+                        }
                 }
                 IsLoadDone = true;
                 return true;
@@ -85,32 +101,31 @@ namespace Logic_simulation.Controller
         /// 輸出真值表
         /// </summary>
         /// <returns></returns>
-        public static unsafe string GetTruthTable()
+        public static string GetTruthTable()
         {
             string Result = string.Empty;
             Result = "Truth table:\n";
             PrivtFieldName(ref Result);
 
             // 運行次數:2的N次方，N為Input pin數量
-            for (int i = 0; i < Math.Pow(2, (InputPin.PinsSignal.Length - 1)); i++)
+            for (int i = 0; i < Math.Pow(2, (iPins.Length - 1)); i++)
             {
                 int k = i;
                 // 10進制轉2進制，並送入電路的Inputs
-                for (int j = 0; j < InputPin.PinsSignal.Length - 1; j++)
+                for (int j = 0; j < iPins.Length - 1; j++)
                 {
-                    InputPin.PinsSignal[((InputPin.PinsSignal.Length - 1) - j)] = Convert.ToBoolean(k % 2);
+                    iPins[((iPins.Length - 1) - j)].iPins = (Convert.ToBoolean(k % 2));
                     k /= 2;
                 }
                 // 輸出當前input的訊號 0 0 1
-                for (int j = 1; j < InputPin.PinsSignal.Length; j++)
-                    Result += (Convert.ToInt32(InputPin.PinsSignal[j]) + " ");
+                for (int j = 1; j < iPins.Length; j++)
+                    Result += (Convert.ToInt32(iPins[j].iPins) + " ");
 
-                // 開始運算
-                InputPin.Changed();
                 // 輸出結果
                 Result += "|";
-                foreach (bool OutputValue in OutputPin.OutPutSignals)
-                    Result += (" " + Convert.ToInt32(OutputValue));
+                foreach (dynamic OutputValue in oPins)
+                    Result += (" " + Convert.ToInt32(OutputValue.GetOutput()));
+                    
 
                 Result += ("\n");
             }
@@ -122,22 +137,23 @@ namespace Logic_simulation.Controller
         /// </summary>
         /// <param name="InPins"></param>
         /// <returns></returns>
-        public static unsafe string GetSimulationResult(bool[] InPins)
+        public static string GetSimulationResult(bool[] InPins)
         {
             string Result = string.Empty;
             Result = "Simulation Result:\n";
             PrivtFieldName(ref Result);
 
-            Array.Copy(InPins, InputPin.PinsSignal, InPins.Length);
-            for (int i = 1; i < InputPin.PinsSignal.Length; i++)
-                Result += Convert.ToInt32(InputPin.PinsSignal[i]) + " ";
+            // 設定input value至input pins，並輸出input value
+            for (int i = 1; i < InPins.Length; i++)
+            {
+                iPins[i].iPins = InPins[i];
+                Result += Convert.ToInt32(InPins[i]) + " ";
+            }
 
-            // 開始運算
-            InputPin.Changed();
             // 輸出結果
             Result += "|";
-            foreach (bool OutputValue in OutputPin.OutPutSignals)
-                Result += (" " + Convert.ToInt32(OutputValue));
+            foreach (OPin OutputPin in oPins)
+                Result += (" " + Convert.ToInt32(OutputPin.GetOutput()));
 
             Result += ("\n");
 
@@ -152,24 +168,24 @@ namespace Logic_simulation.Controller
         private static void PrivtFieldName(ref string Result)
         {
             // 第一行 i i i | o
-            for (int i = 1; i < InputPin.PinsSignal.Length; i++)
+            for (int i = 1; i < iPins.Length; i++)
                 Result += "i ";
             Result += "|";
-            for (int i = 0; i < OutputPin.OutPutSignals.Length; i++)
+            for (int i = 0; i < oPins.Count; i++)
                 Result += " o";
             Result += "\n";
             // 第二行 1 2 3 | 1
-            for (int i = 1; i < InputPin.PinsSignal.Length; i++)
+            for (int i = 1; i < iPins.Length; i++)
                 Result += (i + " ");
             Result += "|";
-            for (int i = 0; i < OutputPin.OutPutSignals.Length; i++)
+            for (int i = 0; i < oPins.Count; i++)
                 Result += " " + (i + 1);
             Result += "\n";
             // 第三行 ------+--
-            for (int i = 1; i < InputPin.PinsSignal.Length; i++)
+            for (int i = 1; i < iPins.Length; i++)
                 Result += ("--");
             Result += ("+");
-            for (int i = 0; i < OutputPin.OutPutSignals.Length; i++)
+            for (int i = 0; i < oPins.Count; i++)
                 Result += "--";
             Result += ("\n");
         }
